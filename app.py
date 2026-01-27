@@ -1,73 +1,83 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# 1. 初始化資料庫與設定
-st.set_page_config(page_title="蛋白質進度追蹤", layout="centered")
+# 頁面設定
+st.set_page_config(page_title="增肌減脂雲端記錄器", layout="centered")
 
-# 你的專屬數據
-FOOD_DB = {
-    "飯糰組合": {"protein": 25, "price": 65},      # 飯糰 + 20g豆漿
-    "高蛋豆漿組合": {"protein": 35, "price": 45},  # 蛋 + 35g豆漿
-    "蛋餅組合": {"protein": 27, "price": 55},      # 蛋餅 + 20g豆漿
-    "午餐兩顆蛋": {"protein": 14, "price": 20},
-    "博客雞胸肉": {"protein": 24, "price": 50},    # 6入299方案
-    "晚餐便當": {"protein": 30, "price": 100},
-    "乳清(1.2匙)": {"protein": 29, "price": 42},   # 1kg/988元
-    "乳清(1匙)": {"protein": 24, "price": 35}
+# 建立 Google Sheets 連線
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 讀取現有資料
+df = conn.read()
+
+# 你的目標與固定清單
+TARGET_P = 100.5
+QUICK_FOODS = {
+    "飯糰組合": {"p": 25, "c": 65},
+    "高蛋豆漿組合": {"p": 35, "c": 45},
+    "博客雞胸肉": {"p": 24, "c": 50},
+    "晚餐便當": {"p": 30, "c": 100},
+    "乳清(1.2匙)": {"p": 29, "c": 42},
 }
 
-TARGET_PROTEIN = 100.5  # 67kg * 1.5
+st.title("💪 蛋白質雲端紀錄 (永久儲存版)")
 
-# 2. 建立資料儲存
-if 'logs' not in st.session_state:
-    st.session_state.logs = []
+# --- 快速記錄 ---
+st.write("### ⚡ 常用組合")
+cols = st.columns(len(QUICK_FOODS))
+for i, (name, data) in enumerate(QUICK_FOODS.items()):
+    if cols[i].button(f"{name}"):
+        new_data = pd.DataFrame([{
+            "時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "項目": name,
+            "蛋白質": data['p'],
+            "金額": data['c']
+        }])
+        updated_df = pd.concat([df, new_data], ignore_index=True)
+        conn.update(data=updated_df)
+        st.success(f"已存入雲端：{name}")
+        st.rerun()
 
-st.title("💪 增肌減脂進度看板")
-st.subheader(f"目標：{TARGET_PROTEIN}g 蛋白質 / 日")
+# --- 自由輸入 ---
+st.write("---")
+st.write("### ✍️ 彈性自由輸入")
+with st.form("custom_input", clear_on_submit=True):
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        custom_name = st.text_input("食物名稱")
+    with col2:
+        custom_p = st.number_input("蛋白質(g)", min_value=0.0)
+    with col3:
+        custom_c = st.number_input("金額(元)", min_value=0)
+    
+    if st.form_submit_button("新增並同步至雲端"):
+        new_data = pd.DataFrame([{
+            "時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "項目": custom_name,
+            "蛋白質": custom_p,
+            "金額": custom_c
+        }])
+        updated_df = pd.concat([df, new_data], ignore_index=True)
+        conn.update(data=updated_df)
+        st.success(f"已同步：{custom_name}")
+        st.rerun()
 
-# 3. 快速記錄按鈕
-st.write("### 快速紀錄今日飲食")
-cols = st.columns(3)
-for i, (food, data) in enumerate(FOOD_DB.items()):
-    with cols[i % 3]:
-        if st.button(f"{food}\n({data['protein']}g)"):
-            st.session_state.logs.append({
-                "時間": datetime.now().strftime("%H:%M"),
-                "項目": food,
-                "蛋白質": data['protein'],
-                "金額": data['price']
-            })
+# --- 今日進度報告 ---
+# 篩選出今天的資料
+df['時間'] = pd.to_datetime(df['時間'])
+today_df = df[df['時間'].dt.date == datetime.now().date()]
 
-# 4. 數據統計
-if st.session_state.logs:
-    df = pd.DataFrame(st.session_state.logs)
-    current_p = df["蛋白質"].sum()
-    current_cost = df["金額"].sum()
-
-    # 進度條
-    progress = min(current_p / TARGET_PROTEIN, 1.0)
-    st.write(f"### 今日進度：{current_p}g / {TARGET_PROTEIN}g")
-    st.progress(progress)
-
-    # 數據指標
-    c1, c2 = st.columns(2)
-    c1.metric("今日總蛋白質", f"{current_p} g")
-    c2.metric("今日累計花費", f"{current_cost} 元")
-
-    # 紀錄表格
-    with st.expander("查看詳細紀錄"):
-        st.table(df)
-        if st.button("清除今日紀錄"):
-            st.session_state.logs = []
-            st.rerun()
+if not today_df.empty:
+    total_p = today_df["蛋白質"].sum()
+    total_c = today_df["金額"].sum()
+    
+    st.write("---")
+    st.write(f"### 📊 今日統計 ({datetime.now().date()})")
+    st.progress(min(total_p / TARGET_P, 1.0))
+    st.metric("今日總蛋白質", f"{total_p} g", f"{round(total_p - TARGET_P, 1)} g")
+    st.metric("今日總金額", f"{total_c} 元")
+    st.table(today_df[["時間", "項目", "蛋白質", "金額"]])
 else:
-    st.info("尚未有今日紀錄，點擊上方按鈕開始！")
-
-# 5. 溫馨提醒 (針對你的生活習慣)
-st.sidebar.markdown(f"""
-### 💡 執行小提醒
-* **今日步數：** 記得走滿 15,000 步喔！
-* **訓練叮嚀：** 今晚是運動日嗎？做二休一別忘了。
-* **乳清提醒：** 運動後喝乳清效果最好。
-""")
+    st.info("今日尚無雲端紀錄。")
