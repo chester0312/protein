@@ -20,7 +20,19 @@ except Exception as e:
     df_foods = pd.DataFrame(columns=["組合名稱", "蛋白質", "金額"])
 
 # 你的目標數據 (體重 67kg * 1.5)
-TARGET_P = 100.5
+# --- 側邊欄：個人狀態設定 ---
+with st.sidebar:
+    st.header("👤 個人狀態設定")
+    
+    # 讓你可以隨時調整體重與倍數
+    current_weight = st.number_input("目前體重 (kg)", min_value=30.0, max_value=150.0, value=67.0, step=0.1)
+    protein_factor = st.slider("蛋白質倍數 (體重 x ?)", min_value=1.0, max_value=2.5, value=1.5, step=0.1)
+    
+    # 自動計算新的目標
+    TARGET_P = round(current_weight * protein_factor, 1)
+    
+    st.info(f"📊 目前目標設定：{TARGET_P} g")
+    st.write("---")
 
 st.title("💪 蛋白質 & 預算雲端紀錄")
 st.write(f"當前目標：{TARGET_P}g (67kg * 1.5倍)")
